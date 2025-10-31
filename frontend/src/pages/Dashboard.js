@@ -1,0 +1,3 @@
+    <AuthProvider>
+      <Dashboard />
+    </AuthProvider>

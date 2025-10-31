@@ -1,0 +1,3 @@
+    <AuthProvider>
+      <Editor />
+    </AuthProvider> 
