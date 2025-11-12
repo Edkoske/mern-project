@@ -1,3 +1,0 @@
-            <AuthProvider>
-              <Home />
-            </AuthProvider>

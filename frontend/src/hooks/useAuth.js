@@ -1,3 +1,6 @@
-    <AuthContext.Provider value={{ user, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+import { useContext } from 'react';
+import { AuthContext } from '../context/AuthContext';
+
+const useAuth = () => useContext(AuthContext);
+
+export default useAuth;

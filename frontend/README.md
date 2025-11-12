@@ -1,16 +1,25 @@
-# React + Vite
+# Frontend – airesume.studio
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite application that powers the AI resume and portfolio builder. Tailwind 4 is used for styling and Axios handles communication with the Express API.
 
-Currently, two official plugins are available:
+## Available scripts
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- `npm run dev` – start the Vite dev server
+- `npm run build` – build production assets
+- `npm run preview` – preview the production build
+- `npm run lint` – run ESLint over the client codebase
 
-## React Compiler
+## Environment variables
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Copy `env.example` to `.env` and configure:
 
-## Expanding the ESLint configuration
+```
+VITE_API_URL=http://localhost:5000/api
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Architecture notes
+
+- Authentication state lives in `context/AuthContext.js` and is consumed via the `useAuth` hook.
+- API calls are centralized in `services/api.js` with automatic JWT injection and error normalization.
+- Resume editing is handled by `components/ResumeForm.js` with Gemini-powered improvements exposed via `/api/ai`.
+- Live previews and portfolio management live under `components/TemplatePreview.js` and `pages/Portfolio.js`.

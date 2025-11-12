@@ -1,4 +1,0 @@
-//login
-    <AuthProvider>
-      <Login />
-    </AuthProvider>
