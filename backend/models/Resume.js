@@ -52,6 +52,7 @@ const resumeSchema = new mongoose.Schema(
       location: { type: String, trim: true },
       website: { type: String, trim: true },
       summary: { type: String, trim: true },
+      photo: { type: String },
     },
     experiences: [experienceSchema],
     education: [educationSchema],

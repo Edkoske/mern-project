@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { portfolioApi, resumeApi } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { downloadPortfolioJson, downloadPortfolioPdf, normalizePortfolio } from '../utils/exportPortfolio';
 
 const createId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -39,12 +40,89 @@ const createEmptyProject = () => ({
   tags: [],
 });
 
+const hydratePortfolio = (data = {}) => {
+  const source = data || {};
+  return {
+    headline: source.headline || '',
+    bio: source.bio || '',
+    skills: Array.isArray(source.skills) ? [...source.skills] : [],
+    socialLinks: {
+      github: source.socialLinks?.github || '',
+      linkedin: source.socialLinks?.linkedin || '',
+      twitter: source.socialLinks?.twitter || '',
+      website: source.socialLinks?.website || '',
+    },
+    projects: Array.isArray(source.projects)
+      ? source.projects.map((project) => ({
+          ...project,
+          tags: Array.isArray(project.tags) ? [...project.tags] : [],
+          clientId: project.clientId || createId(),
+        }))
+      : [],
+    featuredResume:
+      typeof source.featuredResume === 'object' && source.featuredResume !== null
+        ? source.featuredResume
+        : source.featuredResume || '',
+    theme: {
+      palette: {
+        primary: source.theme?.palette?.primary || '#6366f1',
+        secondary: source.theme?.palette?.secondary || '#f59e0b',
+        accent: source.theme?.palette?.accent || '#38bdf8',
+      },
+      layout: source.theme?.layout || 'classic',
+    },
+    slug: source.slug || '',
+    isPublished: Boolean(source.isPublished),
+    publishedAt: source.publishedAt || null,
+  };
+};
+
+const serializePortfolioForApi = (state) => ({
+  headline: state.headline,
+  bio: state.bio,
+  socialLinks: {
+    github: state.socialLinks?.github || '',
+    linkedin: state.socialLinks?.linkedin || '',
+    twitter: state.socialLinks?.twitter || '',
+    website: state.socialLinks?.website || '',
+  },
+  skills: Array.isArray(state.skills) ? state.skills.filter(Boolean) : [],
+  projects: Array.isArray(state.projects)
+    ? state.projects.map(({ clientId: _clientId, tags, ...project }) => ({
+        ...project,
+        tags: Array.isArray(tags) ? tags.filter(Boolean) : [],
+      }))
+    : [],
+  featuredResume:
+    state.featuredResume && typeof state.featuredResume === 'object'
+      ? state.featuredResume._id
+      : state.featuredResume || undefined,
+  theme: {
+    palette: {
+      primary: state.theme?.palette?.primary || '#6366f1',
+      secondary: state.theme?.palette?.secondary || '#f59e0b',
+      accent: state.theme?.palette?.accent || '#38bdf8',
+    },
+    layout: state.theme?.layout || 'classic',
+  },
+});
+
+const formatSlugInput = (value) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 const Portfolio = () => {
   const [portfolio, setPortfolio] = useState(null);
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newSkill, setNewSkill] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [slugDraft, setSlugDraft] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -54,14 +132,8 @@ const Portfolio = () => {
           portfolioApi.get().catch(() => null),
           resumeApi.list(),
         ]);
-        const initial = portfolioResponse || blankPortfolio;
-        setPortfolio({
-          ...initial,
-          projects: (initial.projects || []).map((item) => ({
-            ...item,
-            clientId: item.clientId || createId(),
-          })),
-        });
+        const initial = portfolioResponse ? hydratePortfolio(portfolioResponse) : hydratePortfolio(blankPortfolio);
+        setPortfolio(initial);
         setResumes(resumesResponse);
       } catch (error) {
         toast.error('Unable to load your portfolio.');
@@ -73,15 +145,31 @@ const Portfolio = () => {
     load();
   }, []);
 
+  useEffect(() => {
+    if (portfolio?.slug) {
+      setSlugDraft(portfolio.slug);
+    } else {
+      setSlugDraft('');
+    }
+  }, [portfolio?.slug]);
+
+  const updatePortfolio = useCallback((updater) => {
+    setPortfolio((prev) => {
+      const base = prev || hydratePortfolio(blankPortfolio);
+      const updates = updater(base);
+      return { ...base, ...updates };
+    });
+  }, []);
+
   const projects = useMemo(() => portfolio?.projects ?? [], [portfolio?.projects]);
   const skills = useMemo(() => portfolio?.skills ?? [], [portfolio?.skills]);
-
-  const updatePortfolio = (updater) => {
-    setPortfolio((prev) => ({
-      ...(prev || blankPortfolio),
-      ...updater(prev || blankPortfolio),
-    }));
-  };
+  const normalizedPortfolio = useMemo(
+    () => (portfolio ? normalizePortfolio(portfolio) : null),
+    [portfolio],
+  );
+  const isPublished = Boolean(portfolio?.isPublished);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const shareUrl = portfolio?.slug ? `${origin}/p/${portfolio.slug}` : '';
 
   const handleSkillAdd = () => {
     if (!newSkill.trim()) return;
@@ -133,32 +221,99 @@ const Portfolio = () => {
     }));
   };
 
+  const handleFeaturedResumeSelect = useCallback(
+    (resumeId) => {
+      if (!resumeId) {
+        updatePortfolio(() => ({ featuredResume: '' }));
+        return;
+      }
+      const selected = resumes.find((resume) => resume._id === resumeId);
+      updatePortfolio(() => ({ featuredResume: selected || resumeId }));
+    },
+    [resumes, updatePortfolio],
+  );
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!portfolio) return;
     setSaving(true);
     try {
-      const payload = {
-        ...portfolio,
-        projects: projects.map(({ clientId, ...project }) => ({
-          ...project,
-          tags: project.tags?.filter(Boolean) ?? [],
-        })),
-      };
+      const payload = serializePortfolioForApi(portfolio);
       const response = await portfolioApi.upsert(payload);
-      setPortfolio({
-        ...response,
-        projects: (response.projects || []).map((project) => ({
-          ...project,
-          clientId: project.clientId || createId(),
-        })),
-      });
+      setPortfolio(hydratePortfolio(response));
       toast.success('Portfolio saved');
     } catch (error) {
       toast.error(error.message || 'Could not save portfolio');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handlePublish = async () => {
+    if (!portfolio) return;
+    setPublishing(true);
+    try {
+      const payload = {
+        slug: slugDraft || undefined,
+        portfolio: serializePortfolioForApi(portfolio),
+      };
+      const response = await portfolioApi.publish(payload);
+      setPortfolio(hydratePortfolio(response));
+      toast.success('Portfolio is live!');
+    } catch (error) {
+      toast.error(error.message || 'Could not publish portfolio');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleUnpublish = async () => {
+    if (!portfolio) return;
+    setPublishing(true);
+    try {
+      const response = await portfolioApi.unpublish();
+      setPortfolio(hydratePortfolio(response));
+      toast.success('Portfolio is now offline.');
+    } catch (error) {
+      toast.error(error.message || 'Could not unpublish portfolio');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleExport = async (type) => {
+    if (!normalizedPortfolio) {
+      toast.error('Add some portfolio content before exporting.');
+      return;
+    }
+    setExporting(true);
+    try {
+      if (type === 'pdf') {
+        await downloadPortfolioPdf(normalizedPortfolio);
+        toast.success('Portfolio PDF ready.');
+      } else if (type === 'json') {
+        downloadPortfolioJson(normalizedPortfolio);
+        toast.success('Portfolio JSON downloaded.');
+      }
+    } catch (error) {
+      toast.error(error.message || 'Could not export your portfolio.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('Share link copied');
+    } catch (error) {
+      toast.error('Could not copy link. Copy it manually instead.');
+    }
+  };
+
+  const handleSlugInputChange = (value) => {
+    setSlugDraft(formatSlugInput(value));
   };
 
   if (loading || !portfolio) {
@@ -172,10 +327,107 @@ const Portfolio = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
-        <h1 className="text-xl font-semibold text-white">Portfolio settings</h1>
-        <p className="mt-2 text-sm text-slate-300">
-          Keep your resume and live portfolio in sync. Publish your skills, projects, and featured resume in one place.
-        </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-white">Portfolio settings</h1>
+            <p className="mt-2 text-sm text-slate-300">
+              Keep your resume and live portfolio in sync. Publish your skills, projects, and featured resume in one
+              place.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleExport('pdf')}
+              disabled={exporting}
+              className="inline-flex items-center gap-2 rounded-md border border-indigo-500/40 px-3 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/10 disabled:opacity-50"
+            >
+              {exporting ? <LoadingSpinner /> : '⬇'}
+              <span>Download PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport('json')}
+              disabled={exporting}
+              className="inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-100 transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              Export JSON
+            </button>
+          </div>
+        </div>
+        <div className="mt-6 space-y-3">
+          {isPublished ? (
+            <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-100">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold">Your portfolio is live</p>
+                  {shareUrl ? (
+                    <a
+                      href={shareUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex items-center gap-2 text-xs text-emerald-200 underline underline-offset-4"
+                    >
+                      {shareUrl}
+                    </a>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    className="rounded-md border border-emerald-500/60 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:bg-emerald-500/20"
+                  >
+                    Copy link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUnpublish}
+                    disabled={publishing}
+                    className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    {publishing ? 'Unpublishing…' : 'Unpublish'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-sm text-slate-200">
+              <p className="text-sm text-slate-200">
+                Publish your portfolio to generate a shareable public page. You can unpublish anytime.
+              </p>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="flex-1 text-xs text-slate-300">
+                  <span className="block text-xs font-medium uppercase tracking-wide text-indigo-200">
+                    Custom URL slug
+                  </span>
+                  <div className="mt-2 flex items-center overflow-hidden rounded-md border border-slate-700 bg-slate-950">
+                    <span className="hidden px-3 py-2 text-xs text-slate-500 sm:inline-flex">
+                      {origin ? `${origin}/p/` : '/p/'}
+                    </span>
+                    <input
+                      value={slugDraft}
+                      onChange={(event) => handleSlugInputChange(event.target.value)}
+                      placeholder="your-name"
+                      className="w-full bg-transparent px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+                    />
+                  </div>
+                  <span className="mt-2 block text-[11px] text-slate-500">
+                    Leave blank to auto-generate from your profile.
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handlePublish}
+                  disabled={publishing}
+                  className="inline-flex items-center justify-center rounded-md bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:opacity-60"
+                >
+                  {publishing ? 'Publishing…' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg">
@@ -197,12 +449,12 @@ const Portfolio = () => {
               Featured resume
             </span>
             <select
-              value={portfolio.featuredResume || ''}
-              onChange={(event) =>
-                updatePortfolio(() => ({
-                  featuredResume: event.target.value || undefined,
-                }))
+              value={
+                typeof portfolio.featuredResume === 'object' && portfolio.featuredResume !== null
+                  ? portfolio.featuredResume._id || ''
+                  : portfolio.featuredResume || ''
               }
+              onChange={(event) => handleFeaturedResumeSelect(event.target.value)}
               className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
             >
               <option value="">— Select resume —</option>
@@ -231,7 +483,7 @@ const Portfolio = () => {
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg">
         <h2 className="text-lg font-semibold text-white">Social links</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {Object.entries(portfolio.socialLinks).map(([key, value]) => (
+          {Object.entries(portfolio.socialLinks || blankPortfolio.socialLinks).map(([key, value]) => (
             <label key={key} className="text-sm text-slate-300">
               <span className="block text-xs font-medium uppercase tracking-wide text-indigo-200">
                 {key}
@@ -376,12 +628,12 @@ const Portfolio = () => {
                   <span className="block text-xs font-medium uppercase tracking-wide text-indigo-200">
                     Tags (comma separated)
                   </span>
-                    <input
-                      value={project.tags?.join(', ') ?? ''}
-                      onChange={(event) => handleProjectTags(project.clientId, event.target.value)}
-                      className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
-                      placeholder="React, Node.js, GraphQL"
-                    />
+                  <input
+                    value={project.tags?.join(', ') ?? ''}
+                    onChange={(event) => handleProjectTags(project.clientId, event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
+                    placeholder="React, Node.js, GraphQL"
+                  />
                 </label>
               </div>
             ))}
@@ -399,7 +651,7 @@ const Portfolio = () => {
               </span>
               <input
                 type="color"
-                value={portfolio.theme?.palette?.[key] ?? '#6366f1'}
+                value={portfolio.theme?.palette?.[key] ?? blankPortfolio.theme.palette[key]}
                 onChange={(event) =>
                   updatePortfolio((prev) => ({
                     theme: {
@@ -447,3 +699,5 @@ const Portfolio = () => {
 };
 
 export default Portfolio;
+
+

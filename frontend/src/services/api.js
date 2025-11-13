@@ -1,6 +1,20 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const resolveApiUrl = () => {
+  const raw = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  if (!raw) {
+    return 'http://localhost:5000/api';
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.toLowerCase().endsWith('/api')) {
+    return trimmed;
+  }
+
+  return `${trimmed.replace(/\/+$/, '')}/api`;
+};
+
+const API_URL = resolveApiUrl();
 
 const getToken = () => {
   if (typeof window === 'undefined') {
@@ -61,6 +75,9 @@ export const aiApi = {
 export const portfolioApi = {
   get: () => unwrap(api.get('/portfolio')),
   upsert: (payload) => unwrap(api.put('/portfolio', payload)),
+  publish: (payload) => unwrap(api.post('/portfolio/publish', payload)),
+  unpublish: () => unwrap(api.post('/portfolio/unpublish')),
+  getPublic: (slug) => unwrap(api.get(`/portfolio/public/${slug}`)),
 };
 
 export default api;

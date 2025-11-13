@@ -45,6 +45,7 @@ const baseResume = {
     location: '',
     website: '',
     summary: '',
+    photo: '',
   },
   experiences: [createEmptyExperience()],
   education: [],
@@ -87,6 +88,7 @@ const ResumeForm = ({
   const [form, setForm] = useState(() => buildInitialState(initialData));
   const [aiBusy, setAiBusy] = useState(false);
   const [newSkill, setNewSkill] = useState('');
+  const [photoError, setPhotoError] = useState('');
 
   useEffect(() => {
     setForm(buildInitialState(initialData));
@@ -108,10 +110,65 @@ const ResumeForm = ({
 
   const updatePersonalInfo = useCallback((event) => {
     const { name, value } = event.target;
+    if (name === 'photo') {
+      setPhotoError('');
+    }
     setForm((prev) => ({
       ...prev,
       personalInfo: { ...prev.personalInfo, [name]: value },
     }));
+  }, []);
+
+  const handlePhotoUpload = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const MAX_SIZE = 512 * 1024; // 512 KB to stay under Express JSON limit once base64 encoded
+
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose a valid image file.');
+      toast.error('Only image uploads are supported.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_SIZE) {
+      setPhotoError('Choose an image smaller than 512 KB.');
+      toast.error('Profile photo must be under 512 KB.');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+
+      if (typeof result === 'string') {
+        setForm((prev) => ({
+          ...prev,
+          personalInfo: { ...prev.personalInfo, photo: result },
+        }));
+        setPhotoError('');
+      } else {
+        toast.error('Could not read the selected image.');
+      }
+    };
+    reader.onerror = () => {
+      toast.error('Could not read the selected image.');
+    };
+
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  }, []);
+
+  const handlePhotoRemove = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      personalInfo: { ...prev.personalInfo, photo: '' },
+    }));
+    setPhotoError('');
   }, []);
 
   const updateField = useCallback((key, clientId, event) => {
@@ -281,27 +338,63 @@ const ResumeForm = ({
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg">
         <h2 className="text-lg font-semibold text-white">Personal Information</h2>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {[
-            { label: 'Full name', name: 'fullName', placeholder: 'Jordan Blake' },
-            { label: 'Email', name: 'email', placeholder: 'jordan@email.com' },
-            { label: 'Phone', name: 'phone', placeholder: '+1 555 010 2030' },
-            { label: 'Location', name: 'location', placeholder: 'Remote — Canada' },
-            { label: 'Website / Portfolio', name: 'website', placeholder: 'https://portfolio.site' },
-          ].map((field) => (
-            <label key={field.name} className="text-sm text-slate-300">
-              <span className="block text-xs font-medium uppercase tracking-wide text-indigo-200">
-                {field.label}
-              </span>
-              <input
-                name={field.name}
-                value={form.personalInfo[field.name]}
-                onChange={updatePersonalInfo}
-                placeholder={field.placeholder}
-                className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
-              />
-            </label>
-          ))}
+        <div className="mt-6 flex flex-col gap-6 lg:flex-row">
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-800">
+              {form.personalInfo.photo ? (
+                <img
+                  src={form.personalInfo.photo}
+                  alt={`${form.personalInfo.fullName || 'Resume'} portrait`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-sm text-slate-400">Add photo</span>
+              )}
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-indigo-500/40 px-3 py-1.5 text-xs font-medium text-indigo-200 transition hover:bg-indigo-500/10">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                Upload
+              </label>
+              {form.personalInfo.photo ? (
+                <button
+                  type="button"
+                  onClick={handlePhotoRemove}
+                  className="text-xs text-red-300 underline underline-offset-2 hover:text-red-200"
+                >
+                  Remove photo
+                </button>
+              ) : null}
+              {photoError ? <p className="text-xs text-red-300">{photoError}</p> : null}
+            </div>
+          </div>
+          <div className="grid flex-1 gap-4 sm:grid-cols-2">
+            {[
+              { label: 'Full name', name: 'fullName', placeholder: 'Jordan Blake' },
+              { label: 'Email', name: 'email', placeholder: 'jordan@email.com' },
+              { label: 'Phone', name: 'phone', placeholder: '+1 555 010 2030' },
+              { label: 'Location', name: 'location', placeholder: 'Remote — Canada' },
+              { label: 'Website / Portfolio', name: 'website', placeholder: 'https://portfolio.site' },
+            ].map((field) => (
+              <label key={field.name} className="text-sm text-slate-300">
+                <span className="block text-xs font-medium uppercase tracking-wide text-indigo-200">
+                  {field.label}
+                </span>
+                <input
+                  name={field.name}
+                  value={form.personalInfo[field.name]}
+                  onChange={updatePersonalInfo}
+                  placeholder={field.placeholder}
+                  className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
         </div>
         <div className="mt-4">
           <label className="text-sm text-slate-300">

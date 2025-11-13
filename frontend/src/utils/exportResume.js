@@ -58,6 +58,7 @@ export const normalizeResume = (resume = {}) => {
       location: sanitizeString(personalInfo.location),
       website: sanitizeString(personalInfo.website),
       summary: sanitizeString(personalInfo.summary),
+      photo: sanitizeString(personalInfo.photo),
     },
     experiences: ensureArray(resume.experiences).map(sanitizeExperience),
     education: ensureArray(resume.education).map(sanitizeEducation),
@@ -155,8 +156,38 @@ export const downloadResumePdf = (resume) =>
       doc.setFontSize(22);
 
       const headerText = data.personalInfo.fullName || data.title;
-      doc.text(headerText, margin, helpers.getCursor());
-      helpers.addGap(22);
+      const headerTop = helpers.getCursor();
+      let textStartX = margin;
+      let nextCursor = headerTop;
+
+      if (data.personalInfo.photo) {
+        try {
+          const imageProps = doc.getImageProperties(data.personalInfo.photo);
+          const imageWidth = 90;
+          const aspectRatio =
+            imageProps?.width && imageProps?.height ? imageProps.height / imageProps.width : 1;
+          const imageHeight = imageWidth * (Number.isFinite(aspectRatio) ? aspectRatio : 1);
+          const fileType = imageProps?.fileType || 'JPEG';
+          doc.addImage(
+            data.personalInfo.photo,
+            fileType,
+            margin,
+            headerTop,
+            imageWidth,
+            imageHeight,
+            undefined,
+            'FAST',
+          );
+          textStartX = margin + imageWidth + 18;
+          nextCursor = Math.max(nextCursor, headerTop + imageHeight);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.warn('Failed to embed resume photo in PDF', error);
+        }
+      }
+
+      let textBaseline = headerTop + 20;
+      doc.text(headerText, textStartX, textBaseline);
 
       const contactLine = [
         data.personalInfo.email,
@@ -169,18 +200,26 @@ export const downloadResumePdf = (resume) =>
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
+
       if (contactLine) {
-        doc.text(contactLine, margin, helpers.getCursor());
-        helpers.addGap(lineHeight);
+        textBaseline += lineHeight;
+        doc.text(contactLine, textStartX, textBaseline);
       }
 
       if (data.personalInfo.summary) {
-        const summaryLines = doc.splitTextToSize(data.personalInfo.summary, helpers.usableWidth);
-        doc.text(summaryLines, margin, helpers.getCursor());
-        helpers.addGap(summaryLines.length * lineHeight + 8);
-      } else {
-        helpers.addGap(8);
+        const summaryLines = doc.splitTextToSize(
+          data.personalInfo.summary,
+          helpers.usableWidth - (textStartX - margin),
+        );
+        summaryLines.forEach((line) => {
+          textBaseline += lineHeight;
+          doc.text(line, textStartX, textBaseline);
+        });
       }
+
+      nextCursor = Math.max(nextCursor, textBaseline + 8);
+      helpers.setCursor(nextCursor);
+      helpers.addGap(14);
 
       if (data.experiences.length) {
         doc.setDrawColor(180, 190, 255);

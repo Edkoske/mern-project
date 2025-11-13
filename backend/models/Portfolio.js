@@ -40,6 +40,9 @@ const portfolioSchema = new mongoose.Schema(
       },
       layout: { type: String, trim: true, default: 'classic' },
     },
+    slug: { type: String, trim: true, unique: true, sparse: true },
+    isPublished: { type: Boolean, default: false },
+    publishedAt: { type: Date },
   },
   {
     timestamps: true,

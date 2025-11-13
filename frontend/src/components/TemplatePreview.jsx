@@ -11,19 +11,31 @@ const TemplatePreview = ({ resume }) => {
   }
 
   const { personalInfo = {}, experiences = [], education = [], skills = [], projects = [] } = resume;
+  const hasPhoto = Boolean(personalInfo.photo);
 
   return (
     <article className="grid gap-6 rounded-xl border border-slate-800 bg-slate-950/60 p-6 text-left text-slate-100 shadow-lg">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">{personalInfo.fullName}</h1>
-        <p className="mt-1 text-sm text-slate-300">
-          {[personalInfo.email, personalInfo.phone, personalInfo.location, personalInfo.website]
-            .filter(Boolean)
-            .join(' • ')}
-        </p>
-        {personalInfo.summary ? (
-          <p className="mt-3 text-sm leading-relaxed text-slate-200">{personalInfo.summary}</p>
+      <header className="flex flex-col items-center gap-4 border-b border-slate-800 pb-6 text-center sm:flex-row sm:items-start sm:text-left">
+        {hasPhoto ? (
+          <div className="flex-shrink-0">
+            <img
+              src={personalInfo.photo}
+              alt={`${personalInfo.fullName || 'Resume'} portrait`}
+              className="h-24 w-24 rounded-full border border-indigo-400/40 object-cover shadow-md"
+            />
+          </div>
         ) : null}
+        <div className="flex-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">{personalInfo.fullName}</h1>
+          <p className="mt-1 text-sm text-slate-300">
+            {[personalInfo.email, personalInfo.phone, personalInfo.location, personalInfo.website]
+              .filter(Boolean)
+              .join(' • ')}
+          </p>
+          {personalInfo.summary ? (
+            <p className="mt-3 text-sm leading-relaxed text-slate-200">{personalInfo.summary}</p>
+          ) : null}
+        </div>
       </header>
 
       {experiences.length > 0 && (
@@ -132,6 +144,7 @@ TemplatePreview.propTypes = {
       location: PropTypes.string,
       website: PropTypes.string,
       summary: PropTypes.string,
+      photo: PropTypes.string,
     }),
     experiences: PropTypes.arrayOf(
       PropTypes.shape({
